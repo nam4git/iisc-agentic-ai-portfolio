@@ -1,0 +1,42 @@
+version: '3.9'
+
+services:
+  fund_manager:
+    build: ./fund_manager
+    ports: ['9000:9000']
+    environment:
+      - A1_URL=http://a1_breakout:9001
+      - A2_URL=http://a2_roce:9002
+      - A3_URL=http://a3_mp_entry:9003
+      - A4_URL=http://a4_portfolio:9004
+      - A5_URL=http://a5_research:9005
+    volumes: ['pfb_data:/data']
+    depends_on: [a1_breakout, a2_roce, a3_mp_entry, a4_portfolio, a5_research]
+
+  a1_breakout:
+    build: ./agents/a1_breakout
+    ports: ['9001:9001']
+    volumes: ['pfb_data:/data']
+
+  a2_roce:
+    build: ./agents/a2_roce
+    ports: ['9002:9002']
+    volumes: ['pfb_data:/data']
+
+  a3_mp_entry:
+    build: ./agents/a3_mp_entry
+    ports: ['9003:9003']
+    volumes: ['pfb_data:/data']
+
+  a4_portfolio:
+    build: ./agents/a4_portfolio
+    ports: ['9004:9004']
+    volumes: ['pfb_data:/data']
+
+  a5_research:
+    build: ./agents/a5_research
+    ports: ['9005:9005']
+    volumes: ['pfb_data:/data']
+
+volumes:
+  pfb_data:

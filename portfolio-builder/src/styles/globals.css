@@ -1,0 +1,80 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+/* ── Light theme (default) ────────────────────────────────────────────────── */
+:root {
+  --eq-bg:      #ffffff;
+  --eq-bg2:     #f7f8fa;
+  --eq-card:    #ffffff;
+  --eq-el:      #f3f4f6;
+  --eq-hover:   #f7f8fa;
+  --eq-border:  #e5e7eb;
+  --eq-border2: #d1d5db;
+  --eq-fg:      #111827;
+  --eq-fg2:     #4b5563;
+  --eq-fg3:     #9ca3af;
+  --eq-acc:     #1a3560;
+  --eq-acc2:    #2554a0;
+  --eq-gain:    #166534;
+  --eq-loss:    #991b1b;
+  --eq-warn:    #92400e;
+}
+
+/* ── Dark theme ────────────────────────────────────────────────────────────── */
+:root[data-theme="dark"] {
+  --eq-bg:      #0e0f14;
+  --eq-bg2:     #141620;
+  --eq-card:    #14161f;
+  --eq-el:      #1c1f2e;
+  --eq-hover:   #22253a;
+  --eq-border:  #2a2e45;
+  --eq-border2: #383d58;
+  --eq-fg:      #e8eaed;
+  --eq-fg2:     #8d94ab;
+  --eq-fg3:     #44485e;
+  --eq-acc:     #4a84d9;
+  --eq-acc2:    #79adf5;
+  --eq-gain:    #22c55e;
+  --eq-loss:    #ef4444;
+  --eq-warn:    #d97706;
+}
+
+/* ── Base ────────────────────────────────────────────────────────────────── */
+@layer base {
+  * { box-sizing: border-box; }
+
+  html { font-size: 14px; }
+
+  body {
+    background: var(--eq-bg);
+    color: var(--eq-fg);
+    -webkit-font-smoothing: antialiased;
+    transition: background 0.15s, color 0.15s;
+  }
+
+  a { color: inherit; text-decoration: none; }
+}
+
+/* ── Utilities ────────────────────────────────────────────────────────────── */
+@layer utilities {
+  .tabular { font-variant-numeric: tabular-nums; }
+  .text-gain { color: var(--eq-gain); }
+  .text-loss { color: var(--eq-loss); }
+
+  .scrollbar-thin {
+    scrollbar-width: thin;
+    scrollbar-color: var(--eq-border) transparent;
+  }
+  .scrollbar-thin::-webkit-scrollbar       { width: 4px; height: 4px; }
+  .scrollbar-thin::-webkit-scrollbar-track  { background: transparent; }
+  .scrollbar-thin::-webkit-scrollbar-thumb  { background: var(--eq-border); border-radius: 2px; }
+
+  .tr-fin {
+    border-top: 1px solid var(--eq-border);
+    transition: background 0.1s;
+  }
+  .tr-fin:hover { background: var(--eq-hover); }
+}
