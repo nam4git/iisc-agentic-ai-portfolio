@@ -295,6 +295,133 @@ export function minCVaR(returnMatrix, alpha = 0.05) {
   return w
 }
 
+/**
+ * Equal Weight (1/N) Portfolio  — Naive baseline
+ * Equal allocation across all assets. Surprisingly competitive benchmark.
+ */
+export function equalWeight(n) {
+  return Array(n).fill(1 / n)
+}
+
+/**
+ * Inverse Volatility Portfolio  — Naive, closed-form
+ * w_i = (1/σ_i) / Σ(1/σ_j)
+ * Assets with lower volatility receive higher weight.
+ */
+export function inverseVolatility(cov) {
+  const n    = cov.length
+  const vols = cov.map((row, i) => Math.sqrt(Math.max(row[i], 1e-10)))
+  const inv  = vols.map(v => 1 / v)
+  const sum  = inv.reduce((a, b) => a + b, 0)
+  return sum > 0 ? inv.map(v => v / sum) : Array(n).fill(1 / n)
+}
+
+/**
+ * Maximum Diversification Ratio  (Choueifaty & Coignard 2008)
+ * Maximises DR(w) = w'σ / √(w'Σw) — weighted-average vol divided by portfolio vol.
+ * Solved via projected gradient ascent starting from the inverse-vol portfolio.
+ */
+export function maxDiversification(cov) {
+  const n     = cov.length
+  const sigma = cov.map((row, i) => Math.sqrt(Math.max(row[i], 1e-10)))
+
+  // Warm-start: inverse volatility weights
+  const inv = sigma.map(v => 1 / v)
+  const s0  = inv.reduce((a, b) => a + b, 0)
+  let w     = inv.map(v => v / s0)
+
+  const lr  = 0.001
+  for (let iter = 0; iter < 800; iter++) {
+    const Cw    = matVec(cov, w)
+    const wCw   = dot(w, Cw)
+    const pVol  = Math.sqrt(Math.max(wCw, 1e-12))
+    const wSig  = dot(w, sigma)
+
+    // ∂DR/∂w = σ/pVol − (wᵀσ / pVol³) Σw
+    const grad = sigma.map((s, i) => s / pVol - (wSig / (pVol * pVol * pVol)) * Cw[i])
+    w = projectSimplex(w.map((wi, i) => wi + lr * grad[i]))
+  }
+  return w
+}
+
+/**
+ * Hierarchical Equal Risk Contribution (HERC)  (Raffinot 2018)
+ * Same Ward-linkage clustering and seriation as HRP, but uses equal risk
+ * contribution (inverse-variance) weights at each recursive bisection step
+ * rather than IVP at the leaf level only.
+ */
+export function hierarchicalERC(cov) {
+  const n = cov.length
+  if (n === 1) return [1]
+  if (n === 2) return inverseVolatility(cov)
+
+  const corr = buildCorrMatrix(cov)
+  const dist = corr.map((row, i) =>
+    row.map((c, j) =>
+      i === j ? 0 : Math.sqrt(0.5 * (1 - Math.min(Math.max(c, -1), 1)))
+    )
+  )
+
+  const order   = greedySeriation(dist, n)
+  const weights = Array(n).fill(1.0)
+  hERCBisect(order, cov, weights)
+  const total = weights.reduce((s, w) => s + w, 0)
+  return total > 0 ? weights.map(w => w / total) : Array(n).fill(1 / n)
+}
+
+function hERCBisect(order, cov, weights) {
+  if (order.length <= 1) return
+  const mid   = Math.floor(order.length / 2)
+  const left  = order.slice(0, mid)
+  const right = order.slice(mid)
+
+  // Equal-risk contribution variance for each cluster
+  const lRisk  = ercVariance(cov, left)
+  const rRisk  = ercVariance(cov, right)
+  const total  = lRisk + rRisk
+  const wLeft  = total > 0 ? 1 - lRisk / total : 0.5
+  const wRight = 1 - wLeft
+
+  for (const i of left)  weights[i] *= wLeft
+  for (const i of right) weights[i] *= wRight
+
+  hERCBisect(left,  cov, weights)
+  hERCBisect(right, cov, weights)
+}
+
+function ercVariance(cov, indices) {
+  // ERC weights within cluster: start from equal, converge toward equal risk
+  const m  = indices.length
+  let   w  = Array(m).fill(1 / m)
+  for (let iter = 0; iter < 200; iter++) {
+    const subCov = indices.map(i => indices.map(j => cov[i][j]))
+    const sigma  = portfolioVol(w, subCov)
+    if (sigma < 1e-12) break
+    const Sw     = matVec(subCov, w)
+    const rc     = w.map((wi, i) => wi * Sw[i] / sigma)
+    const target = sigma * sigma / m
+    let   maxD   = 0
+    const nw     = w.map((wi, i) => {
+      const g   = 2 * Sw[i]
+      if (Math.abs(g * wi) < 1e-14) return wi
+      const d   = 0.05 * (rc[i] - target) / (g * wi)
+      const upd = Math.max(wi - d, 1e-8)
+      maxD = Math.max(maxD, Math.abs(upd - wi))
+      return upd
+    })
+    const s = nw.reduce((a, b) => a + b, 0)
+    w = nw.map(v => v / s)
+    if (maxD < 1e-8) break
+  }
+  // Portfolio variance with ERC weights
+  const subCov = indices.map(i => indices.map(j => cov[i][j]))
+  let pVar = 0
+  for (let a = 0; a < m; a++)
+    for (let b = 0; b < m; b++)
+      pVar += w[a] * w[b] * subCov[a][b]
+  return Math.max(pVar, 1e-12)
+}
+
 // ─── Portfolio statistics ─────────────────────────────────────────────────────
 
 export function portfolioStats(w, mu, cov, rf = RF) {

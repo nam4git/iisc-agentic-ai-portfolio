@@ -16,17 +16,25 @@ import {
   equalRiskContribution,
   hierarchicalRiskParity,
   minCVaR,
+  equalWeight,
+  inverseVolatility,
+  maxDiversification,
+  hierarchicalERC,
   portfolioStats,
   riskContributions,
   portfolioVol,
 } from '../../lib/optimize'
 
 const METHODS = [
-  { key: 'min_var',    name: 'Minimum Variance',        ref: 'Markowitz (1952)',                       color: '#4a84d9' },
-  { key: 'max_sharpe', name: 'Maximum Sharpe Ratio',     ref: 'Sharpe (1966)',                          color: '#34d399' },
-  { key: 'erc',        name: 'Equal Risk Contribution',  ref: 'Maillard, Roncalli & Teïletche (2010)', color: '#fb923c' },
-  { key: 'hrp',        name: 'Hier. Risk Parity',        ref: 'López de Prado (2016)',                  color: '#a78bfa' },
-  { key: 'min_cvar',   name: 'Min CVaR (α=5%)',          ref: 'Rockafellar & Uryasev (2000)',           color: '#f472b6' },
+  { key: 'min_var',    name: 'Minimum Variance',          ref: 'Markowitz (1952)',                       color: '#4a84d9' },
+  { key: 'max_sharpe', name: 'Maximum Sharpe Ratio',       ref: 'Sharpe (1966)',                          color: '#34d399' },
+  { key: 'erc',        name: 'Equal Risk Contribution',    ref: 'Maillard, Roncalli & Teïletche (2010)', color: '#fb923c' },
+  { key: 'hrp',        name: 'Hierarchical Risk Parity',   ref: 'López de Prado (2016)',                  color: '#a78bfa' },
+  { key: 'min_cvar',   name: 'Min CVaR (α=5%)',            ref: 'Rockafellar & Uryasev (2000)',           color: '#f472b6' },
+  { key: 'eq_w',       name: 'Equal Weight (1/N)',         ref: 'Naive baseline',                         color: '#94a3b8' },
+  { key: 'inv_vol',    name: 'Inverse Volatility',         ref: 'Naive, closed-form',                     color: '#67e8f9' },
+  { key: 'max_div',    name: 'Maximum Diversification',    ref: 'Choueifaty & Coignard (2008)',           color: '#fbbf24' },
+  { key: 'herc',       name: 'Hier. Equal Risk Contrib.',  ref: 'Raffinot (2018)',                        color: '#f87171' },
 ]
 
 export default async function handler(req, res) {
@@ -88,13 +96,18 @@ export default async function handler(req, res) {
   const mu   = computeAnnualizedMeans(returnMatrix)
   const vols = cov.map((row, i) => Math.sqrt(Math.max(row[i], 0)) * Math.sqrt(252))
 
-  // Run all 5 methods
+  // Run all 9 methods
+  const n = valid.length
   const methodWeights = {
     min_var:    minVariance(cov),
     max_sharpe: maxSharpe(cov, mu),
     erc:        equalRiskContribution(cov),
     hrp:        hierarchicalRiskParity(cov),
     min_cvar:   minCVaR(returnMatrix),
+    eq_w:       equalWeight(n),
+    inv_vol:    inverseVolatility(cov),
+    max_div:    maxDiversification(cov),
+    herc:       hierarchicalERC(cov),
   }
 
   const optimized = {}

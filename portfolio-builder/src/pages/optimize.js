@@ -163,7 +163,7 @@ export default function OptimizePage() {
           </div>
           <h1 className="text-2xl font-bold mb-2">Portfolio Optimizer</h1>
           <p className="text-sm text-eq-fg2 max-w-2xl leading-relaxed">
-            Five portfolio optimisation methods applied to 1-year live NSE/BSE price history.
+            Nine portfolio optimisation methods applied to 1-year live NSE/BSE price history.
             Algorithms are inspired by{' '}
             <a href="https://github.com/skfolio/skfolio" target="_blank" rel="noopener noreferrer"
                className="text-eq-acc hover:underline">skfolio</a>
@@ -375,7 +375,7 @@ export default function OptimizePage() {
                   className="text-eq-acc hover:underline">skfolio</a>{' '}(MIT License, Hugo Delatte et al.).
                 For production use, install the Python library: <code className="bg-eq-el px-1 rounded">pip install skfolio</code>.
               </div>
-              <div>References: Markowitz (1952) · Sharpe (1966) · Maillard, Roncalli &amp; Teïletche (2010) · López de Prado (2016) · Rockafellar &amp; Uryasev (2000).</div>
+              <div>References: Markowitz (1952) · Sharpe (1966) · Maillard et al. (2010) · López de Prado (2016) · Rockafellar &amp; Uryasev (2000) · Choueifaty &amp; Coignard (2008) · Raffinot (2018).</div>
             </div>
           </>
         )}
