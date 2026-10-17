@@ -1,0 +1,8 @@
+{
+  "builds": [
+    {
+      "src": "portfolio-builder/package.json",
+      "use": "@vercel/next"
+    }
+  ]
+}
