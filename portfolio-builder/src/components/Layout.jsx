@@ -4,11 +4,14 @@ import { useRouter } from 'next/router'
 import { useTheme } from '../hooks/useTheme'
 
 const NAV = [
-  { href: '/',         label: 'Overview' },
-  { href: '/spec',     label: 'Spec' },
-  { href: '/demo',     label: 'Portfolio' },
-  { href: '/pipeline', label: 'Agents' },
-  { href: '/roce',     label: 'ROCE' },
+  { href: '/',          label: 'Overview' },
+  { href: '/spec',      label: 'Spec' },
+  { href: '/demo',      label: 'Portfolio' },
+  { href: '/pipeline',  label: 'Agents' },
+  { href: '/roce',      label: 'ROCE' },
+  { href: '/optimize',  label: 'Optimize' },
+  { href: '/insurance', label: 'Insurance' },
+  { href: '/indices',   label: 'Indices' },
 ]
 
 export default function Layout({ children, title = 'EQ Portfolio Builder' }) {

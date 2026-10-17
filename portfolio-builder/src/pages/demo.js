@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import Layout from '../components/Layout'
 import MetricBar from '../components/portfolio/MetricTiles'
 import HoldingsTable from '../components/portfolio/HoldingsTable'
@@ -12,6 +12,32 @@ export default function Demo() {
   const [ticker, setTicker]       = useState('')
   const [weight, setWeight]       = useState('')
   const [error, setError]         = useState('')
+  const [liveQuotes, setLiveQuotes] = useState({})
+  const [marketStatus, setMarketStatus] = useState(null)
+  const [liveLoading, setLiveLoading]   = useState(false)
+
+  useEffect(() => {
+    fetchMarketStatus()
+    fetchLiveQuotes(portfolio)
+  }, [])
+
+  async function fetchMarketStatus() {
+    try {
+      const r = await fetch('/api/market-status')
+      setMarketStatus(await r.json())
+    } catch {}
+  }
+
+  async function fetchLiveQuotes(pf) {
+    if (!pf.length) return
+    setLiveLoading(true)
+    try {
+      const tickers = pf.map(h => h.ticker).join(',')
+      const r = await fetch(`/api/quotes?tickers=${tickers}`)
+      setLiveQuotes(await r.json())
+    } catch {}
+    setLiveLoading(false)
+  }
 
   const { data, wRet, wBeta, wVol, sharpe: sh } = calcMetrics(portfolio)
   const sectors = sectorBreakdown(portfolio)
@@ -42,10 +68,23 @@ export default function Demo() {
       <div className="max-w-6xl mx-auto px-5 py-8 space-y-5">
 
         {/* page title row */}
-        <div className="flex items-baseline gap-4">
+        <div className="flex items-center gap-3 flex-wrap">
           <h1 className="text-xl font-semibold">Portfolio</h1>
-          <span className="text-xs text-eq-fg3 font-mono">sample data</span>
-          <div className="flex-1" />
+          {marketStatus ? (
+            <span className="text-xs font-mono px-2 py-0.5 rounded border"
+              style={marketStatus.open
+                ? { color: 'var(--eq-gain)', background: '#22c55e12', borderColor: '#22c55e40' }
+                : { color: 'var(--eq-fg3)', background: 'var(--eq-el)', borderColor: 'var(--eq-border)' }}>
+              {marketStatus.open ? '● Live' : '○ Closed'} · {marketStatus.time_ist} IST
+            </span>
+          ) : (
+            <span className="text-xs text-eq-fg3 font-mono">sample data</span>
+          )}
+          {liveLoading && <span className="text-xs text-eq-fg3 font-mono">refreshing…</span>}
+          <button onClick={() => fetchLiveQuotes(portfolio)}
+            className="text-xs px-2.5 py-1 border border-eq-border rounded text-eq-fg2 hover:text-eq-fg hover:border-eq-border2 transition-colors ml-auto">
+            ↻ Refresh prices
+          </button>
           <span className="text-xs text-eq-fg3 font-mono hidden sm:block">
             {new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
           </span>
@@ -141,7 +180,7 @@ export default function Demo() {
           <span className="text-sm text-eq-fg2">
             Agentic analysis — A1 breakout scan, A2 ROCE gate, A3 entry levels
           </span>
-          <a href="/agents" className="text-xs text-eq-acc no-underline hover:underline ml-auto">View pipeline →</a>
+          <a href="/pipeline" className="text-xs text-eq-acc no-underline hover:underline ml-auto">View pipeline →</a>
         </div>
 
       </div>

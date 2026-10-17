@@ -1,196 +1,149 @@
 /**
  * GET /api/roce/[ticker]
+ * Uses yahoo-finance2 (reliable on Vercel serverless; no raw API scraping)
  *
- * Fetches quarterly financials from Yahoo Finance (NSE: ticker.NS)
- * and computes ROCE using the formula:
- *
+ * Formula:
  *   NCA  = Current Assets − Cash & Equivalents
- *   NCL  = Current Liabilities
- *   NWC  = NCA − NCL                           (Net Working Capital)
- *   NFA  = Net PPE + Other Intangibles          (excl. Goodwill by default)
- *   TCE  = NFA + NWC                            (Total Capital Employed)
- *   EBIT = TTM sum of last 4 quarterly EBITs    (annualised)
+ *   NWC  = NCA − Current Liabilities
+ *   NFA  = Net PPE + Other Intangibles (Goodwill excluded)
+ *   TCE  = NFA + NWC
+ *   EBIT = TTM sum of last 4 quarterly EBITs
  *   ROCE = EBIT / TCE × 100
- *
- * Intangibles note: Goodwill excluded by default (acquisition premium ≠ operating
- * capital). Other Intangible Assets included (brands, customer relationships,
- * licenses) per Lev & Sougiannis / Peters & Taylor intangible capital research.
- *
- * Returns JSON:
- *   { ticker, name, current: RocePoint, history: RocePoint[], trend, source }
- *   where RocePoint = { quarter, roce, ebit, tce, nwc, nfa, breakdown }
  */
+
+import yahooFinance from 'yahoo-finance2'
 
 export default async function handler(req, res) {
   const { ticker } = req.query
   if (!ticker) return res.status(400).json({ error: 'ticker required' })
 
-  const symbol = ticker.toUpperCase().endsWith('.NS') || ticker.toUpperCase().endsWith('.BO')
-    ? ticker.toUpperCase()
-    : `${ticker.toUpperCase()}.NS`
+  const t = ticker.toUpperCase()
+  const symbol = t.endsWith('.NS') || t.endsWith('.BO') ? t : `${t}.NS`
 
   try {
-    const data = await fetchYahooFinancials(symbol)
+    const data = await fetchRoce(symbol)
+    res.setHeader('Cache-Control', 'public, max-age=900') // 15 min cache
     return res.status(200).json(data)
-  } catch (err) {
-    // Try BSE (.BO) if .NS not found
+  } catch {
     if (symbol.endsWith('.NS')) {
       try {
-        const data = await fetchYahooFinancials(symbol.replace('.NS', '.BO'))
+        const data = await fetchRoce(symbol.replace('.NS', '.BO'))
+        res.setHeader('Cache-Control', 'public, max-age=900')
         return res.status(200).json(data)
-      } catch (_) {}
+      } catch {}
     }
     return res.status(404).json({
       error: 'not_found',
-      message: `No data for ${symbol}. Try uploading a CSV with your financials.`,
+      message: `No financial data for ${symbol}. Try uploading a CSV with quarterly financials.`,
       upload_required: true,
     })
   }
 }
 
-async function fetchYahooFinancials(symbol) {
-  const modules = [
-    'incomeStatementHistoryQuarterly',
-    'balanceSheetHistoryQuarterly',
-    'incomeStatementHistory',
-    'balanceSheetHistory',
-    'price',
-  ].join(',')
-
-  const url = `https://query1.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(symbol)}?modules=${modules}`
-
-  const resp = await fetch(url, {
-    headers: {
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-      'Accept': 'application/json',
-    },
+async function fetchRoce(symbol) {
+  const result = await yahooFinance.quoteSummary(symbol, {
+    modules: ['incomeStatementHistoryQuarterly', 'balanceSheetHistoryQuarterly', 'price'],
   })
 
-  if (!resp.ok) throw new Error(`Yahoo returned ${resp.status}`)
+  const name = result.price?.shortName || result.price?.longName || symbol
 
-  const json = await resp.json()
-  const result = json?.quoteSummary?.result?.[0]
-  if (!result) throw new Error('no result')
+  const qBS = [...(result.balanceSheetHistoryQuarterly?.balanceSheetStatements || [])]
+    .sort((a, b) => new Date(b.endDate) - new Date(a.endDate))
 
-  const name = result.price?.shortName || symbol
+  const qIS = [...(result.incomeStatementHistoryQuarterly?.incomeStatementHistory || [])]
+    .sort((a, b) => new Date(b.endDate) - new Date(a.endDate))
 
-  // --- quarterly data ---
-  const qBS = result.balanceSheetHistoryQuarterly?.balanceSheetStatements || []
-  const qIS = result.incomeStatementHistoryQuarterly?.incomeStatementHistory || []
-
-  // Sort both by endDate descending (newest first)
-  qBS.sort((a, b) => b.endDate.raw - a.endDate.raw)
-  qIS.sort((a, b) => b.endDate.raw - a.endDate.raw)
-
-  // Build quarterly ROCE points (last 8 quarters)
-  const history = buildHistory(qBS, qIS)
-
-  // Current ROCE from most recent full quarter
-  const current = history[0] || null
-
-  // Trend: compare last 4 vs prior 4 quarters
-  const trend = computeTrend(history)
-
-  return {
-    ticker: symbol,
-    name,
-    current,
-    history,
-    trend,
-    source: 'Yahoo Finance',
-    formula_note: 'ROCE = TTM EBIT / TCE. NFA = Net PPE + Other Intangibles (Goodwill excluded). NWC = (Current Assets − Cash) − Current Liabilities.',
-  }
-}
-
-function buildHistory(qBS, qIS) {
-  const points = []
-
-  // Match BS and IS by closest quarter date
+  // Index IS by quarter label for fast lookup
   const isMap = new Map()
-  for (const stmt of qIS) {
-    const key = quarterLabel(stmt.endDate.raw)
-    isMap.set(key, stmt)
-  }
+  for (const stmt of qIS) isMap.set(quarterLabel(stmt.endDate), stmt)
+
+  const history = []
 
   for (let i = 0; i < Math.min(qBS.length, 8); i++) {
     const bs = qBS[i]
-    const key = quarterLabel(bs.endDate.raw)
+    const key = quarterLabel(bs.endDate)
     const is = isMap.get(key)
     if (!is) continue
 
-    // Balance sheet items (all in native currency — typically INR for .NS)
-    const currentAssets = val(bs.totalCurrentAssets)
-    const cash         = val(bs.cash) + val(bs.shortTermInvestments)
-    const currentLiab  = val(bs.totalCurrentLiabilities)
-    const netPPE       = val(bs.propertyPlantEquipmentNet) || val(bs.netTangibleAssets)
-    const goodwill     = val(bs.goodWill)
-    const intangibles  = val(bs.intangibleAssets) - goodwill  // excl. goodwill
+    // yahoo-finance2 returns direct numbers (no .raw needed)
+    const currentAssets = safeNum(bs.totalCurrentAssets)
+    const cash          = safeNum(bs.cash) + safeNum(bs.shortTermInvestments)
+    const currentLiab   = safeNum(bs.totalCurrentLiabilities)
+    const netPPE        = safeNum(bs.propertyPlantEquipment) || safeNum(bs.netTangibleAssets)
+    const goodwill      = safeNum(bs.goodwill)
+    const intangibles   = Math.max(safeNum(bs.intangibleAssets) - goodwill, 0)
 
-    const nca  = Math.max(currentAssets - cash, 0)
-    const nwc  = nca - currentLiab
-    const nfa  = netPPE + Math.max(intangibles, 0)
-    const tce  = nfa + nwc
+    const nca = Math.max(currentAssets - cash, 0)
+    const nwc = nca - currentLiab
+    const nfa = netPPE + intangibles
+    const tce = nfa + nwc
 
-    // Income statement: use single quarter EBIT, then annualise via TTM below
-    const qEbit = val(is.ebit) || val(is.operatingIncome)
+    const qEbit = safeNum(is.ebit) || safeNum(is.operatingIncome)
 
     if (tce === 0) continue
 
-    points.push({
+    history.push({
       quarter: key,
-      date_ts: bs.endDate.raw,
-      q_ebit: qEbit,       // single quarter, used for TTM calculation
-      tce,
-      nwc,
-      nfa,
+      date_ts: new Date(bs.endDate).getTime() / 1000,
+      q_ebit: qEbit,
+      tce, nwc, nfa,
       breakdown: {
         current_assets: currentAssets,
-        cash,
-        nca,
+        cash, nca,
         current_liab: currentLiab,
         net_ppe: netPPE,
-        intangibles_included: Math.max(intangibles, 0),
+        intangibles_included: intangibles,
         goodwill_excluded: goodwill,
       },
     })
   }
 
-  // Compute TTM EBIT for each point (sum of that quarter + 3 prior)
-  for (let i = 0; i < points.length; i++) {
-    const window = points.slice(i, i + 4)
+  // Compute TTM EBIT and ROCE for each quarter
+  for (let i = 0; i < history.length; i++) {
+    const window = history.slice(i, i + 4)
     const ttmEbit = window.reduce((s, p) => s + p.q_ebit, 0)
-    const tce = points[i].tce
-    points[i].ebit = ttmEbit
-    points[i].roce = tce !== 0 ? parseFloat(((ttmEbit / tce) * 100).toFixed(2)) : null
+    history[i].ebit = ttmEbit
+    history[i].roce = history[i].tce !== 0
+      ? parseFloat(((ttmEbit / history[i].tce) * 100).toFixed(2))
+      : null
   }
 
-  return points
+  const trend = computeTrend(history)
+
+  return {
+    ticker: symbol,
+    name,
+    current: history[0] || null,
+    history,
+    trend,
+    source: 'Yahoo Finance',
+    formula_note: 'ROCE = TTM EBIT / TCE. NFA = Net PPE + Other Intangibles (Goodwill excluded).',
+  }
 }
 
 function computeTrend(history) {
   if (history.length < 2) return 'INSUFFICIENT_DATA'
-  const recent = history.slice(0, Math.min(4, history.length))
-  const rocs = recent.map(p => p.roce).filter(r => r !== null)
+  const rocs = history.slice(0, 4).map(p => p.roce).filter(r => r !== null)
   if (rocs.length < 2) return 'INSUFFICIENT_DATA'
-  const diffs = rocs.slice(0, -1).map((r, i) => r - rocs[i + 1])  // newest - older (positive = improving)
+  const diffs = rocs.slice(0, -1).map((r, i) => r - rocs[i + 1])
   const avg = diffs.reduce((s, d) => s + d, 0) / diffs.length
-  if (avg > 1.0)  return 'IMPROVING'
+  if (avg > 1.0) return 'IMPROVING'
   if (avg < -1.0) return 'DECLINING'
   return 'FLAT'
 }
 
-function quarterLabel(epochSec) {
-  const d = new Date(epochSec * 1000)
-  const m = d.getMonth() + 1  // 1-12
+function quarterLabel(dateVal) {
+  const d = dateVal instanceof Date ? dateVal : new Date(dateVal)
+  const m = d.getMonth() + 1
   const y = d.getFullYear()
-  // Indian fiscal year: Apr-Jun = Q1, Jul-Sep = Q2, Oct-Dec = Q3, Jan-Mar = Q4
   const fy = m >= 4 ? y + 1 : y
   const q = m >= 4 && m <= 6 ? 'Q1' : m >= 7 && m <= 9 ? 'Q2' : m >= 10 ? 'Q3' : 'Q4'
   return `${q}FY${String(fy).slice(2)}`
 }
 
-function val(field) {
-  if (!field) return 0
-  if (typeof field === 'number') return field
-  return field.raw || 0
+function safeNum(v) {
+  if (v === null || v === undefined) return 0
+  if (typeof v === 'number') return v
+  if (typeof v === 'object' && 'raw' in v) return v.raw || 0
+  return 0
 }
