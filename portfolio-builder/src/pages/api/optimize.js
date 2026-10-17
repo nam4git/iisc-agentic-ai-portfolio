@@ -6,7 +6,7 @@
  * runs 5 academic optimization algorithms, and returns weights + efficient frontier.
  */
 
-import yahooFinance from 'yahoo-finance2'
+import { fetchHistory as fetchHistoryLib } from '../../lib/yahoo'
 import {
   buildCovMatrix,
   buildCorrMatrix,
@@ -139,19 +139,5 @@ export default async function handler(req, res) {
 }
 
 async function fetchHistory(ticker, start, end) {
-  const t      = ticker.trim().toUpperCase()
-  const symbol = t.startsWith('^') || t.includes('.') ? t : `${t}.NS`
-
-  try {
-    const data = await yahooFinance.historical(symbol, { period1: start, period2: end, interval: '1d' })
-    return data
-      .filter(d => (d.adjClose || d.close) > 0)
-      .map(d => ({ date: d.date.toISOString().split('T')[0], close: d.adjClose || d.close }))
-  } catch {
-    const bso = t.replace(/\.(NS|BO)$/, '') + '.BO'
-    const data = await yahooFinance.historical(bso, { period1: start, period2: end, interval: '1d' })
-    return data
-      .filter(d => (d.adjClose || d.close) > 0)
-      .map(d => ({ date: d.date.toISOString().split('T')[0], close: d.adjClose || d.close }))
-  }
+  return fetchHistoryLib(ticker, start, end)
 }
